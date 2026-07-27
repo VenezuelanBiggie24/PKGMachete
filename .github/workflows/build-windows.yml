@@ -41,10 +41,10 @@ jobs:
     - name: Zip EXE bundle
       run: |
         cd linux-port/build/Release
-        Compress-Archive -Path * -DestinationPath ../../../PKGMachete-Windows.zip
+        Compress-Archive -Path * -DestinationPath ../../../PKGMachete-V5-Windows.zip
 
     - name: Upload Windows Bundle to Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v5.0.0
-        files: PKGMachete-Windows.zip
+        files: PKGMachete-V5-Windows.zip
