@@ -31,10 +31,10 @@ jobs:
 
     - name: Rename APK
       run: |
-        mv android-port/app/build/outputs/apk/release/app-release-unsigned.apk PKGMachete-Android.apk
+        mv android-port/app/build/outputs/apk/release/app-release-unsigned.apk PKGMachete-V5-Android.apk
 
     - name: Upload APK to Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v5.0.0
-        files: PKGMachete-Android.apk
+        files: PKGMachete-V5-Android.apk
