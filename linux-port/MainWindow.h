@@ -9,6 +9,7 @@
 #include <QVBoxLayout>
 #include <QMap>
 #include <QString>
+#include <QTimer>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -55,4 +56,8 @@ private:
     QMap<int, double> threadProgress;
     double globalProgress;
     qint64 startTime;
+    
+    // throttling
+    QString logBuffer;
+    QTimer *logTimer;
 };
