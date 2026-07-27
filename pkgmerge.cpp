@@ -10,10 +10,23 @@
 #include <mutex>
 #include <cstring>
 #include <fcntl.h>
-#include <unistd.h>
 #include <sys/stat.h>
 #include <memory>
 #include <cstdlib>
+#ifndef _WIN32
+#include <unistd.h>
+#else
+#include <io.h>
+#include <malloc.h>
+#ifndef O_BINARY
+#define O_BINARY _O_BINARY
+#endif
+typedef ptrdiff_t ssize_t;
+#endif
+
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
 #if defined(__APPLE__)
 #include <CommonCrypto/CommonDigest.h>
 #else
@@ -163,7 +176,11 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
     }
 
     // Open file for writing (creation and preallocation on main thread)
-    int fd_main = open(full_merged_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+#ifdef _WIN32
+    int fd_main = _open(full_merged_file.c_str(), _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY, _S_IREAD | _S_IWRITE);
+#else
+    int fd_main = open(full_merged_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
+#endif
     if (fd_main < 0) {
         emit_json_error("Could not open destination file for writing.", false);
         return false;
@@ -181,7 +198,11 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
 #elif defined(__linux__)
     posix_fallocate(fd_main, 0, total_size);
 #endif
+#ifdef _WIN32
+    _close(fd_main);
+#else
     close(fd_main);
+#endif
 
     std::atomic<uintmax_t> total_written{0};
     std::atomic<bool> has_error{false};
@@ -196,7 +217,11 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
 
     auto worker_task = [&](int thread_id) {
         // Open independent output file descriptor to avoid VFS Lock contention
-        int fd_out = open(full_merged_file.c_str(), O_WRONLY);
+#ifdef _WIN32
+        int fd_out = _open(full_merged_file.c_str(), _O_WRONLY | _O_BINARY);
+#else
+        int fd_out = open(full_merged_file.c_str(), O_WRONLY | O_BINARY);
+#endif
         if (fd_out < 0) {
             emit_json_error("Thread " + to_string(thread_id) + " failed to open destination file.", false);
             return;
@@ -213,7 +238,11 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
             if (idx >= parts.size()) break;
             
             const auto& part = parts[idx];
-            int fd_in = open(part.file.string().c_str(), O_RDONLY);
+#ifdef _WIN32
+            int fd_in = _open(part.file.string().c_str(), _O_RDONLY | _O_BINARY);
+#else
+            int fd_in = open(part.file.string().c_str(), O_RDONLY | O_BINARY);
+#endif
             if (fd_in < 0) {
                 emit_json_error("Thread " + to_string(thread_id) + " failed to open part " + to_string(part.part_num), false);
                 has_error = true;
@@ -227,6 +256,15 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
 #endif
 
             const size_t buf_size = 16 * 1024 * 1024; // 16MB buffer
+#ifdef _WIN32
+            char* buffer_ptr = (char*)_aligned_malloc(buf_size, 4096);
+            if (!buffer_ptr) {
+                emit_json_error("Thread " + to_string(thread_id) + " failed to allocate aligned memory", false);
+                has_error = true;
+                break;
+            }
+            std::unique_ptr<char, decltype(&_aligned_free)> buffer_guard(buffer_ptr, _aligned_free);
+#else
             char* buffer_ptr = nullptr;
             if (posix_memalign((void**)&buffer_ptr, 4096, buf_size) != 0) {
                 emit_json_error("Thread " + to_string(thread_id) + " failed to allocate aligned memory", false);
@@ -234,13 +272,18 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
                 break;
             }
             std::unique_ptr<char, decltype(&free)> buffer_guard(buffer_ptr, free);
+#endif
             char* buffer = buffer_ptr;
             
             uintmax_t offset_in_out = part.offset_in_merged;
             uintmax_t written_for_part = 0;
             
             while (!has_error.load()) {
+#ifdef _WIN32
+                ssize_t bytes_read = _read(fd_in, buffer, (unsigned int)buf_size);
+#else
                 ssize_t bytes_read = read(fd_in, buffer, buf_size);
+#endif
                 if (bytes_read < 0) {
                     emit_json_error("Thread " + to_string(thread_id) + " failed to read from part " + to_string(part.part_num), false);
                     has_error = true;
@@ -250,7 +293,12 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
                 
                 ssize_t total_written_for_buffer = 0;
                 while (total_written_for_buffer < bytes_read && !has_error.load()) {
+#ifdef _WIN32
+                    _lseeki64(fd_out, offset_in_out, SEEK_SET);
+                    ssize_t bytes_written = _write(fd_out, buffer + total_written_for_buffer, (unsigned int)(bytes_read - total_written_for_buffer));
+#else
                     ssize_t bytes_written = pwrite(fd_out, buffer + total_written_for_buffer, bytes_read - total_written_for_buffer, offset_in_out);
+#endif
                     if (bytes_written < 0) {
                         emit_json_error("Write error on part " + to_string(part.part_num), false);
                         has_error = true;
@@ -273,9 +321,17 @@ bool process_package(const string& title_id, std::vector<PackagePart>& parts, co
                     emit_json_progress(thread_id, part.part_num, part_prog, glob_prog);
                 }
             }
+#ifdef _WIN32
+            _close(fd_in);
+#else
             close(fd_in);
+#endif
         }
+#ifdef _WIN32
+        _close(fd_out);
+#else
         close(fd_out);
+#endif
     };
 
     for (size_t i = 0; i < num_threads; ++i) {
