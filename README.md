@@ -18,9 +18,7 @@
 
 ## 📸 Screenshots
 
-*(Add application screenshots here)*
-> **Tip:** Showcase images of the Glassmorphism interface and the log console.
-> `![Main Screen](path/to/image.png)`
+![Main Screen](screenshot.png)
 
 ## 🚀 Installation
 
