@@ -27,22 +27,7 @@ typedef ptrdiff_t ssize_t;
 #ifndef O_BINARY
 #define O_BINARY 0
 #endif
-#if defined(__APPLE__)
-#include <CommonCrypto/CommonDigest.h>
-#else
-#include <openssl/sha.h>
-#endif
 
-#if defined(__APPLE__)
-#include <libkern/OSByteOrder.h>
-#define be32toh(x) OSSwapBigToHostInt32(x)
-#define be64toh(x) OSSwapBigToHostInt64(x)
-#elif defined(__linux__)
-#include <endian.h>
-#else
-#include <winsock2.h>
-#define be32toh(x) ntohl(x)
-#endif
 
 namespace fs = std::filesystem;
 using namespace std;
