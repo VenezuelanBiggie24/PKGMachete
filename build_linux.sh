@@ -22,26 +22,34 @@ cp pkg-merge "$OUTPUT_DIR/"
 echo "Build successful! Binary is located in $OUTPUT_DIR/pkg-merge"
 
 # (Optional) AppImage preparation skeleton
-# To create an AppImage in the future, you would do something like this:
+# To create an AppImage in the future, you would bundle the Python GUI and binary:
 APPDIR="$OUTPUT_DIR/PkgMerge.AppDir"
 mkdir -p "$APPDIR/usr/bin"
-cp pkg-merge "$APPDIR/usr/bin/"
+mkdir -p "$APPDIR/opt/PKGMachete/gui"
+mkdir -p "$APPDIR/opt/PKGMachete/bin"
 
-# Create a simple .desktop file
-cat << 'EOF' > "$APPDIR/pkg-merge.desktop"
+# Copy C++ binary
+cp pkg-merge "$APPDIR/opt/PKGMachete/bin/"
+
+# Copy Python GUI
+cp ../linux_app/main.py "$APPDIR/opt/PKGMachete/gui/"
+
+# Create an AppRun script or .desktop file to launch the Python GUI
+cat << 'EOF' > "$APPDIR/pkgmachete.desktop"
 [Desktop Entry]
-Name=PkgMerge
-Exec=pkg-merge
-Icon=pkg-merge
+Name=PKGMachete
+Exec=python3 /opt/PKGMachete/gui/main.py
+Icon=pkgmachete
 Type=Application
 Categories=Utility;
 EOF
 
-# Ensure there's an icon (using the existing one)
-# cp ../icon.jpg "$APPDIR/pkg-merge.png" 
+# Ensure there's an icon
+cp ../icon.jpg "$APPDIR/pkgmachete.png" || true
 
-# Note: AppImage creation requires linuxdeploy / appimagetool, which are not included here.
-# To finish AppImage creation you would run:
+# Note: AppImage creation requires linuxdeploy / appimagetool, as well as a bundled python runtime or appimage-builder.
+# For standard linux distribution, please see build_debian.sh which focuses on the .deb package.
+# To finish AppImage creation using appimagetool, you would run:
 # appimagetool "$APPDIR"
 
-echo "Standalone Linux binary prepared."
+echo "Standalone Linux binary and AppImage skeleton prepared. (See build_debian.sh for .deb packaging)"
