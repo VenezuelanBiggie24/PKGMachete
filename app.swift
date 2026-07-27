@@ -77,7 +77,33 @@ class LanguageManager: ObservableObject {
             "err2_sol": "Solution: Check permissions or redownload.",
             "err3_title": "Merge failed with code X",
             "err3_cause": "Cause: Execution failed.",
-            "err3_sol": "Solution: Verify disk space."
+            "err3_sol": "Solution: Verify disk space.",
+
+            "changelog_title": "Changelog - PKGMachete",
+            "cl_v5_f1": "C++ Optimization: Each thread now uses its own file descriptor (VFS Lock Contention resolved).",
+            "cl_v5_f2": "Implemented F_NOCACHE to prevent RAM saturation (Page Cache Trashing) on macOS.",
+            "cl_v5_f3": "Strict Magic Bytes validation implemented to prevent merging fake PKG files.",
+            "cl_v5_f4": "Full protection against JSON Injection from the C++ engine.",
+            "cl_v5_f5": "Asynchronous JSON decoding in Swift to avoid UI FPS drops.",
+            "cl_v5_f6": "UI Improvements: Dynamic GitHub button, Version, and Changelog.",
+            "cl_v4_f1": "Complete migration of the backend engine to C++20.",
+            "cl_v4_f2": "Native support for Multi-Threading with hardware concurrency.",
+            "cl_v4_f3": "Standardized JSON output implemented for asynchronous communication.",
+            "cl_v4_f4": "General progress bar with live ETA (Estimated Time of Arrival).",
+            "cl_v31_f1": "Dynamic Multi-language i18n: Native support for 15 languages.",
+            "cl_v31_f2": "Real-time Switch: Change language instantly without reloading.",
+            "cl_v31_f3": "Biography: Added author's full biography (VenezuelanBiggie24).",
+            "cl_v30_f1": "Official Rebranding: Project officially renamed to PKGMachete.",
+            "cl_v30_f2": "Massive Redesign (Premium UI): Completely revamped interface with Glassmorphism.",
+            "cl_v30_f3": "Real-time Log Console: Integrated in-app console.",
+            "cl_v30_f4": "Automatic Installer: Included build_dmg.sh script.",
+            "cl_v22_f1": "Custom Output: Ability to select a specific output directory.",
+            "cl_v22_f2": "ETA: Live mathematical algorithm for estimated time of completion.",
+            "cl_v21_f1": "PS5 Support: Built-in support for merging PS5 PKGs.",
+            "cl_v21_f2": "Graphical Interface (V1): First GUI using SwiftUI.",
+            "cl_v21_f3": "Engine Rewrite: Algorithm rewritten to a two-pass system.",
+            "cl_v20_f1": "macOS Port: Native migration of the C++ engine to macOS.",
+            "cl_v10_f1": "Original Project: CLI tool developed in C++ by Tustin.",
         ],
         "es_ve": [
             "drag_drop": "Arrastra y suelta la carpeta PKG aquí",
@@ -112,7 +138,33 @@ class LanguageManager: ObservableObject {
             "err2_sol": "Solución: Revisar permisos o re-descargar.",
             "err3_title": "Merge failed with code X",
             "err3_cause": "Causa: Fallo de ejecución.",
-            "err3_sol": "Solución: Verificar espacio en disco."
+            "err3_sol": "Solución: Verificar espacio en disco.",
+
+            "changelog_title": "Historial de Cambios - PKGMachete",
+            "cl_v5_f1": "Optimización de C++: Cada hilo ahora usa su propio descriptor de archivo (VFS Lock Contention resuelto).",
+            "cl_v5_f2": "Implementado F_NOCACHE para evitar la saturación de RAM (Page Cache Trashing) en macOS.",
+            "cl_v5_f3": "Validación estricta de Magic Bytes implementada para prevenir la unión de archivos PKG falsos.",
+            "cl_v5_f4": "Protección total contra Inyección JSON desde el motor C++.",
+            "cl_v5_f5": "Decodificación asíncrona de JSON en Swift para evitar caídas de FPS en la interfaz.",
+            "cl_v5_f6": "Mejoras de UI: Botón hacia GitHub, Versión y Changelog dinámicos.",
+            "cl_v4_f1": "Migración completa del motor de backend a C++20.",
+            "cl_v4_f2": "Soporte nativo para Multi-Threading con concurrencia por hardware.",
+            "cl_v4_f3": "Implementada salida JSON estandarizada para comunicación asíncrona.",
+            "cl_v4_f4": "Barra de progreso general con ETA (Tiempo Estimado) en vivo.",
+            "cl_v31_f1": "i18n Multi-idioma Dinámico: Soporte nativo para 15 idiomas.",
+            "cl_v31_f2": "Cambio en Tiempo Real: Cambia el idioma al instante sin recargar.",
+            "cl_v31_f3": "Biografía: Se añadió la biografía completa del autor (VenezuelanBiggie24).",
+            "cl_v30_f1": "Rebranding Oficial: El proyecto pasó a llamarse oficialmente PKGMachete.",
+            "cl_v30_f2": "Rediseño Masivo (UI Premium): Interfaz completamente renovada con Glassmorphism.",
+            "cl_v30_f3": "Consola de Logs en Vivo: Consola integrada en la app.",
+            "cl_v30_f4": "Instalador Automático: Script build_dmg.sh incluido.",
+            "cl_v22_f1": "Salida Personalizada: Posibilidad de seleccionar un directorio de salida específico.",
+            "cl_v22_f2": "ETA: Algoritmo matemático en vivo para tiempo estimado de finalización.",
+            "cl_v21_f1": "Soporte PS5: Soporte integrado para unir PKGs de PS5.",
+            "cl_v21_f2": "Interfaz Gráfica (V1): Primera GUI usando SwiftUI.",
+            "cl_v21_f3": "Reescritura del Motor: Algoritmo reescrito a un sistema de 'dos pasadas'.",
+            "cl_v20_f1": "Port para macOS: Migración nativa del motor C++ a macOS.",
+            "cl_v10_f1": "Proyecto Original: Herramienta CLI desarrollada en C++ por Tustin.",
         ],
         "fr": [
             "drag_drop": "Glissez et déposez le dossier PKG ici",
@@ -897,7 +949,7 @@ struct ContentView: View {
                         .padding(.trailing, 10)
                         
                     Button(action: {
-                        if let url = URL(string: "https://github.com/Tustin/pkg-merge") {
+                        if let url = URL(string: "https://github.com/VenezuelanBiggie24/PKGMachete") {
                             NSWorkspace.shared.open(url)
                         }
                     }) {
@@ -1216,7 +1268,7 @@ struct AboutView: View {
                                 Text(lang.get("orig_engine"))
                                     .font(.caption)
                                     .foregroundColor(.gray)
-                                Link("Tustin (github.com/Tustin/pkg-merge)", destination: URL(string: "https://github.com/Tustin/pkg-merge")!)
+                                Link("VenezuelanBiggie24 (github.com/VenezuelanBiggie24/PKGMachete)", destination: URL(string: "https://github.com/VenezuelanBiggie24/PKGMachete")!)
                                     .font(.body)
                                     .foregroundColor(.cyan)
                             }
@@ -1371,44 +1423,47 @@ struct ErrorItemView: View {
 
 struct ChangelogView: View {
     @Environment(\.presentationMode) var presentationMode
+    @EnvironmentObject var lang: LanguageManager
     
     var body: some View {
         VStack(spacing: 20) {
-            Text("Changelog - PKGMachete")
+            Text(lang.get("changelog_title"))
                 .font(.system(size: 28, weight: .bold, design: .monospaced))
                 .foregroundColor(.cyan)
                 .padding(.top, 30)
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    ChangelogItemView(
-                        version: "v5.0.0",
-                        date: "Jul 2026",
-                        features: [
-                            "Optimización de C++: Cada hilo ahora usa su propio descriptor de archivo (VFS Lock Contention resuelto).",
-                            "Implementado F_NOCACHE para evitar la saturación de RAM (Page Cache Trashing) en macOS.",
-                            "Validación estricta de Magic Bytes implementada para prevenir la unión de archivos PKG falsos.",
-                            "Protección total contra Inyección JSON desde el motor C++.",
-                            "Decodificación asíncrona de JSON en Swift para evitar caídas de FPS en la interfaz.",
-                            "Mejoras de UI: Botón hacia GitHub, Versión y Changelog dinámicos."
-                        ]
-                    )
-                    
-                    ChangelogItemView(
-                        version: "v4.0.0",
-                        date: "Jul 2026",
-                        features: [
-                            "Migración completa del motor de backend a C++20.",
-                            "Soporte nativo para Multi-Threading con concurrencia por hardware.",
-                            "Implementada salida JSON estandarizada para comunicación asíncrona.",
-                            "Barra de progreso general con ETA (Tiempo Estimado) en vivo."
-                        ]
-                    )
+                    ChangelogItemView(version: "v5.0.0", date: "Jul 2026", features: [
+                        lang.get("cl_v5_f1"), lang.get("cl_v5_f2"), lang.get("cl_v5_f3"),
+                        lang.get("cl_v5_f4"), lang.get("cl_v5_f5"), lang.get("cl_v5_f6")
+                    ])
+                    ChangelogItemView(version: "v4.0.0", date: "Jul 2026", features: [
+                        lang.get("cl_v4_f1"), lang.get("cl_v4_f2"), lang.get("cl_v4_f3"), lang.get("cl_v4_f4")
+                    ])
+                    ChangelogItemView(version: "v3.1.0", date: "2026", features: [
+                        lang.get("cl_v31_f1"), lang.get("cl_v31_f2"), lang.get("cl_v31_f3")
+                    ])
+                    ChangelogItemView(version: "v3.0.0", date: "2026", features: [
+                        lang.get("cl_v30_f1"), lang.get("cl_v30_f2"), lang.get("cl_v30_f3"), lang.get("cl_v30_f4")
+                    ])
+                    ChangelogItemView(version: "v2.2.0", date: "2026", features: [
+                        lang.get("cl_v22_f1"), lang.get("cl_v22_f2")
+                    ])
+                    ChangelogItemView(version: "v2.1.0", date: "2026", features: [
+                        lang.get("cl_v21_f1"), lang.get("cl_v21_f2"), lang.get("cl_v21_f3")
+                    ])
+                    ChangelogItemView(version: "v2.0.0", date: "2026", features: [
+                        lang.get("cl_v20_f1")
+                    ])
+                    ChangelogItemView(version: "v1.0.0", date: "Original", features: [
+                        lang.get("cl_v10_f1")
+                    ])
                 }
                 .padding(.horizontal, 30)
             }
             
-            Button("Close") {
+            Button(lang.get("close")) {
                 presentationMode.wrappedValue.dismiss()
             }
             .padding(.horizontal, 40)
