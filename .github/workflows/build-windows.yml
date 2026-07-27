@@ -11,24 +11,38 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.3'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
 
-    - name: Setup NuGet
-      uses: NuGet/setup-nuget@v2
-
-    - name: Restore NuGet Packages
+    - name: Configure CMake
       run: |
-        cd windows-port
-        nuget restore PKGMachete.sln
+        cd linux-port
+        mkdir build
+        cd build
+        cmake ..
 
-    - name: Build Solution
+    - name: Build
       run: |
-        cd windows-port
-        msbuild PKGMachete.sln /p:Configuration=Release /p:Platform=x64
+        cd linux-port/build
+        cmake --build . --config Release
 
-    - name: Upload EXE to Release
+    - name: Run windeployqt
+      run: |
+        cd linux-port/build/Release
+        windeployqt PKGMachete.exe
+
+    - name: Zip EXE bundle
+      run: |
+        cd linux-port/build/Release
+        Compress-Archive -Path * -DestinationPath ../../../PKGMachete-Windows.zip
+
+    - name: Upload Windows Bundle to Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v5.0.0
-        files: windows-port/x64/Release/PKGMachete.exe
+        files: PKGMachete-Windows.zip
