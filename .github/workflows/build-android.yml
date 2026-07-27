@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
     - uses: actions/checkout@v4
 
@@ -27,8 +29,12 @@ jobs:
         cd android-port
         gradle assembleRelease
 
+    - name: Rename APK
+      run: |
+        mv android-port/app/build/outputs/apk/release/app-release-unsigned.apk PKGMachete-Android.apk
+
     - name: Upload APK to Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v5.0.0
-        files: android-port/app/build/outputs/apk/release/app-release-unsigned.apk
+        files: PKGMachete-Android.apk
