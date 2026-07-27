@@ -18,20 +18,23 @@ mkdir -p "$PKG_NAME/DEBIAN"
 mkdir -p "$PKG_NAME/opt/PKGMachete/bin"
 mkdir -p "$PKG_NAME/opt/PKGMachete/gui"
 mkdir -p "$PKG_NAME/usr/share/applications"
-mkdir -p "$PKG_NAME/usr/share/icons"
+mkdir -p "$PKG_NAME/usr/share/pixmaps"
 
 # Copy binary
 cp build_linux/pkg-merge "$PKG_NAME/opt/PKGMachete/bin/"
+chmod 755 "$PKG_NAME/opt/PKGMachete/bin/pkg-merge"
 
 # Copy Python GUI
 cp linux_app/main.py "$PKG_NAME/opt/PKGMachete/gui/"
+chmod 755 "$PKG_NAME/opt/PKGMachete/gui/main.py"
 
 # Copy icon
 if [ -f "pkg_merge_icon.jpg" ]; then
-    cp pkg_merge_icon.jpg "$PKG_NAME/usr/share/icons/pkgmachete.jpg"
+    cp pkg_merge_icon.jpg "$PKG_NAME/usr/share/pixmaps/pkgmachete.jpg"
 elif [ -f "icon.jpg" ]; then
-    cp icon.jpg "$PKG_NAME/usr/share/icons/pkgmachete.jpg"
+    cp icon.jpg "$PKG_NAME/usr/share/pixmaps/pkgmachete.jpg"
 fi
+[ -f "$PKG_NAME/usr/share/pixmaps/pkgmachete.jpg" ] && chmod 644 "$PKG_NAME/usr/share/pixmaps/pkgmachete.jpg"
 
 # Create DEBIAN/control
 cat << EOF > "$PKG_NAME/DEBIAN/control"
@@ -71,11 +74,15 @@ cat << EOF > "$PKG_NAME/usr/share/applications/pkgmachete.desktop"
 [Desktop Entry]
 Name=PKGMachete
 Exec=python3 /opt/PKGMachete/gui/main.py
-Icon=/usr/share/icons/pkgmachete.jpg
+Icon=/usr/share/pixmaps/pkgmachete.jpg
 Terminal=false
 Type=Application
 Categories=Utility;
 EOF
+chmod 644 "$PKG_NAME/usr/share/applications/pkgmachete.desktop"
+
+echo "Setting directory permissions..."
+find "$PKG_NAME" -type d -exec chmod 755 {} \;
 
 echo "Building Debian package..."
 dpkg-deb --build "$PKG_NAME"
