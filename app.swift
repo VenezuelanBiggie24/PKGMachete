@@ -572,12 +572,24 @@ class LanguageManager: ObservableObject {
     ]
 }
 
+struct CLIMessage: Decodable {
+    let type: String
+    let thread: Int?
+    let part: Int?
+    let progress: Double?
+    let global: Double?
+    let message: String?
+    let dracarys_needed: Bool?
+}
+
 class MergeViewModel: ObservableObject {
     @Published var isHovering = false
     @Published var selectedFolder: URL?
     @Published var outputFolder: URL?
     @Published var isProcessing = false
     @Published var progress: Double = 0
+    @Published var threadProgress: [Int: Double] = [:]
+    @Published var showDracarysAlert = false
     
     @Published var statusKey: String = "waiting"
     @Published var statusArg: String = ""
@@ -588,33 +600,41 @@ class MergeViewModel: ObservableObject {
     @Published var logOutput: String = ""
     
     var startTime: Date?
+    private var process: Process?
     
     private var logAccumulator: String = ""
     private var logUpdateTimer: Timer?
     private let maxLogLength = 10000
     private let logQueue = DispatchQueue(label: "com.pkgmachete.logQueue")
     
-    private func flushLogs() {
+    private func flushLogs(force: Bool = false) {
         var newLogs = ""
         logQueue.sync {
             if !self.logAccumulator.isEmpty {
-                newLogs = self.logAccumulator
-                self.logAccumulator = ""
+                if force {
+                    newLogs = self.logAccumulator
+                    self.logAccumulator = ""
+                } else if let lastNewlineIndex = self.logAccumulator.lastIndex(of: "\n") {
+                    let splitIndex = self.logAccumulator.index(after: lastNewlineIndex)
+                    newLogs = String(self.logAccumulator[..<splitIndex])
+                    self.logAccumulator = String(self.logAccumulator[splitIndex...])
+                }
             }
         }
         if !newLogs.isEmpty {
-            self.logOutput += newLogs
-            if self.logOutput.count > self.maxLogLength {
-                self.logOutput = String(self.logOutput.suffix(self.maxLogLength))
-            }
             self.parseOutput(newLogs)
         }
     }
     
     func startMerge() {
+        startMerge(force: false)
+    }
+    
+    func startMerge(force: Bool) {
         guard let folder = selectedFolder else { return }
         isProcessing = true
         progress = 0
+        threadProgress = [:]
         startTime = Date()
         
         statusRaw = nil
@@ -635,11 +655,11 @@ class MergeViewModel: ObservableObject {
         let outPath = outputFolder?.path
         
         DispatchQueue.global(qos: .userInitiated).async {
-            self.runCLI(folderPath: folder.path, outPath: outPath)
+            self.runCLI(folderPath: folder.path, outPath: outPath, force: force)
         }
     }
     
-    func runCLI(folderPath: String, outPath: String?) {
+    func runCLI(folderPath: String, outPath: String?, force: Bool) {
         guard let cliPath = Bundle.main.url(forResource: "pkgmachete-cli", withExtension: nil)?.path else {
             DispatchQueue.main.async {
                 self.statusRaw = nil
@@ -651,10 +671,17 @@ class MergeViewModel: ObservableObject {
         }
         
         let process = Process()
+        DispatchQueue.main.async {
+            self.process = process
+        }
+        process.environment = [:] // Clear environment to prevent injection attacks
         process.executableURL = URL(fileURLWithPath: cliPath)
         var args = [folderPath]
         if let out = outPath {
             args.append(out)
+        }
+        if force {
+            args.append("--force")
         }
         process.arguments = args
         
@@ -680,16 +707,17 @@ class MergeViewModel: ObservableObject {
             DispatchQueue.main.async {
                 fileHandle.readabilityHandler = nil
                 self.logUpdateTimer?.invalidate()
-                self.flushLogs()
+                self.flushLogs(force: true)
                 
                 self.isProcessing = false
+                self.process = nil
                 if process.terminationStatus == 0 {
                     self.progress = 100
                     self.statusRaw = nil
                     self.statusKey = "success"
                     self.etaKey = ""
                     self.logOutput += "\n--- Merge Completed ---\n"
-                } else {
+                } else if !self.showDracarysAlert {
                     if self.statusRaw == nil || !(self.statusRaw!.lowercased().contains("error")) {
                         self.statusRaw = nil
                         self.statusKey = "err_code"
@@ -700,8 +728,10 @@ class MergeViewModel: ObservableObject {
             }
         } catch {
             DispatchQueue.main.async {
+                fileHandle.readabilityHandler = nil
                 self.logUpdateTimer?.invalidate()
-                self.flushLogs()
+                self.flushLogs(force: true)
+                self.process = nil
                 self.statusRaw = nil
                 self.statusKey = "failed_run"
                 self.statusArg = error.localizedDescription
@@ -713,27 +743,100 @@ class MergeViewModel: ObservableObject {
     
     func parseOutput(_ output: String) {
         let lines = output.components(separatedBy: .newlines)
-        for line in lines {
-            if line.contains("merged") && line.contains("bytes") {
-                if let percentRange = line.range(of: "(?<=)\\d+(?=\\%)", options: .regularExpression) {
-                    let percentStr = String(line[percentRange])
-                    if let p = Double(percentStr) {
-                        self.progress = p
-                        self.statusRaw = line.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\r\t", with: "")
-                        
-                        if let start = self.startTime, p > 0 {
-                            let elapsed = Date().timeIntervalSince(start)
-                            let totalEstimated = (elapsed / p) * 100
-                            let remaining = totalEstimated - elapsed
-                            if remaining > 0 {
-                                self.etaKey = "eta"
-                                self.etaArg = "\(Int(remaining))s"
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            var newLogs = ""
+            var localStatusRaw: String?
+            var localProgress: Double?
+            var localThreadProgress = [Int: Double]()
+            var localEtaKey: String?
+            var localEtaArg: String?
+            var triggerDracarys = false
+            var finishProgress = false
+            
+            for line in lines {
+                let tLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if tLine.isEmpty { continue }
+                
+                if let data = tLine.data(using: .utf8),
+                   let msg = try? JSONDecoder().decode(CLIMessage.self, from: data) {
+                    
+                    switch msg.type {
+                    case "progress":
+                        if let thread = msg.thread ?? msg.part, let p = msg.progress {
+                            localThreadProgress[thread] = p
+                        }
+                        if let g = msg.global {
+                            localProgress = g
+                            if let start = self.startTime, g > 0 {
+                                let elapsed = Date().timeIntervalSince(start)
+                                let totalEstimated = (elapsed / (g / 100.0))
+                                let remaining = totalEstimated - elapsed
+                                if remaining > 0 {
+                                    localEtaKey = "eta"
+                                    localEtaArg = "\(Int(remaining))s"
+                                }
                             }
                         }
+                        
+                        let th = msg.thread ?? msg.part ?? 0
+                        let part = msg.part ?? 0
+                        let pStr = String(format: "%05.2f%%", msg.progress ?? 0.0)
+                        let gStr = String(format: "%05.2f%%", msg.global ?? 0.0)
+                        newLogs += "> [SYS] THREAD_\(String(format: "%02d", th)) ACTIVE | CHUNK: \(String(format: "%02d", part)) | PROG: \(pStr) | GLOBAL: \(gStr)\n"
+                    case "error":
+                        localStatusRaw = msg.message ?? "Error"
+                        newLogs += "[ERROR] \(msg.message ?? "Error")\n"
+                        if msg.dracarys_needed == true {
+                            triggerDracarys = true
+                        }
+                    case "success":
+                        localStatusRaw = msg.message ?? "Success"
+                        newLogs += "[SUCCESS] \(msg.message ?? "Success")\n"
+                        finishProgress = true
+                    case "info":
+                        localStatusRaw = msg.message ?? "Info"
+                        newLogs += "[INFO] \(msg.message ?? "Info")\n"
+                    default:
+                        newLogs += line + "\n"
+                    }
+                } else {
+                    newLogs += line + "\n"
+                    if tLine.contains("merged") && tLine.contains("bytes") {
+                        if let percentRange = tLine.range(of: "(?<=)\\d+(?=\\%)", options: .regularExpression) {
+                            let percentStr = String(tLine[percentRange])
+                            if let p = Double(percentStr) {
+                                localProgress = p
+                                localStatusRaw = tLine
+                            }
+                        }
+                    } else if tLine.contains("[success]") || tLine.contains("[error]") || tLine.contains("[warn]") {
+                        localStatusRaw = tLine
                     }
                 }
-            } else if line.contains("[success]") || line.contains("[error]") || line.contains("[warn]") {
-                self.statusRaw = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
+            DispatchQueue.main.async {
+                self.logOutput += newLogs
+                if self.logOutput.count > self.maxLogLength {
+                    self.logOutput = String(self.logOutput.suffix(self.maxLogLength))
+                }
+                if let status = localStatusRaw { self.statusRaw = status }
+                if let p = localProgress { self.progress = p }
+                if let ek = localEtaKey, let ea = localEtaArg {
+                    self.etaKey = ek
+                    self.etaArg = ea
+                }
+                for (t, p) in localThreadProgress {
+                    self.threadProgress[t] = p
+                }
+                if triggerDracarys {
+                    self.process?.terminate()
+                    self.showDracarysAlert = true
+                }
+                if finishProgress {
+                    self.progress = 100
+                }
             }
         }
     }
@@ -744,6 +847,7 @@ struct ContentView: View {
     @StateObject private var vm = MergeViewModel()
     @State private var showAbout = false
     @State private var showGlossary = false
+    @State private var showChangelog = false
     
     var body: some View {
         ZStack {
@@ -764,7 +868,7 @@ struct ContentView: View {
                 .blur(radius: 60)
                 .offset(x: 250, y: 200)
 
-            VStack(spacing: 20) {
+            VStack(spacing: 15) {
                 // Header
                 HStack {
                     Menu {
@@ -787,6 +891,29 @@ struct ContentView: View {
                     
                     Spacer()
                     
+                    Text("v5.0.0")
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundColor(.gray)
+                        .padding(.trailing, 10)
+                        
+                    Button(action: {
+                        if let url = URL(string: "https://github.com/Tustin/pkg-merge") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }) {
+                        Image(systemName: "curlybraces.square.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
+                    Button(action: { showChangelog.toggle() }) {
+                        Image(systemName: "list.clipboard.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.purple)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
                     Button(action: { showGlossary.toggle() }) {
                         Image(systemName: "questionmark.circle.fill")
                             .font(.system(size: 24))
@@ -801,19 +928,19 @@ struct ContentView: View {
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
-                .padding(.top, 20)
+                .padding(.top, 15)
                 .padding(.horizontal, 30)
 
                 HStack {
                     Image(systemName: "gamecontroller.fill")
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 50, height: 50)
+                        .frame(width: 45, height: 45)
                         .foregroundColor(.cyan)
                         .shadow(color: .cyan, radius: 10, x: 0, y: 0)
                     
                     Text("PKGMachete")
-                        .font(.system(size: 36, weight: .heavy, design: .monospaced))
+                        .font(.system(size: 32, weight: .heavy, design: .monospaced))
                         .foregroundColor(.white)
                         .shadow(color: .purple, radius: 5, x: 0, y: 0)
                 }
@@ -827,13 +954,13 @@ struct ContentView: View {
                             RoundedRectangle(cornerRadius: 16)
                                 .strokeBorder(vm.isHovering ? Color.cyan : Color.white.opacity(0.2), style: StrokeStyle(lineWidth: 2, dash: [10]))
                         )
-                        .frame(height: 120)
+                        .frame(height: 100)
                         .shadow(color: vm.isHovering ? Color.cyan.opacity(0.5) : Color.clear, radius: 10)
                     
                     if let folder = vm.selectedFolder {
                         VStack(spacing: 8) {
                             Image(systemName: "folder.fill")
-                                .font(.largeTitle)
+                                .font(.title)
                                 .foregroundColor(.cyan)
                             Text(folder.lastPathComponent)
                                 .font(.headline)
@@ -848,7 +975,7 @@ struct ContentView: View {
                     } else {
                         VStack(spacing: 8) {
                             Image(systemName: "arrow.down.doc.fill")
-                                .font(.largeTitle)
+                                .font(.title)
                                 .foregroundColor(.white.opacity(0.6))
                             Text(lang.get("drag_drop"))
                                 .font(.headline)
@@ -935,10 +1062,29 @@ struct ContentView: View {
                 }
                 
                 // Progress Bar
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     ProgressView(value: vm.progress, total: 100)
                         .progressViewStyle(LinearProgressViewStyle(tint: .cyan))
                         .padding(.horizontal, 40)
+                    
+                    if !vm.threadProgress.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 15) {
+                                ForEach(vm.threadProgress.keys.sorted(), id: \.self) { threadId in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Thread \(threadId)")
+                                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                            .foregroundColor(.purple)
+                                        ProgressView(value: vm.threadProgress[threadId] ?? 0, total: 100)
+                                            .progressViewStyle(LinearProgressViewStyle(tint: .purple))
+                                            .frame(width: 60)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 40)
+                        }
+                        .frame(height: 25)
+                    }
                     
                     HStack {
                         let statusText = vm.statusRaw ?? (vm.statusKey.isEmpty ? "" : lang.get(vm.statusKey) + (vm.statusArg.isEmpty ? "" : " " + vm.statusArg))
@@ -959,7 +1105,7 @@ struct ContentView: View {
                 .opacity(vm.selectedFolder == nil ? 0 : 1)
                 
                 // Logs View
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(lang.get("console_output"))
                         .font(.caption)
                         .foregroundColor(.gray)
@@ -968,15 +1114,15 @@ struct ContentView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             Text(vm.logOutput)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(size: 10, design: .monospaced))
                                 .foregroundColor(.green)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
+                                .padding(8)
                                 .id("LogBottom")
                         }
                         .background(Color.black.opacity(0.5))
-                        .cornerRadius(10)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                        .cornerRadius(8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.1), lineWidth: 1))
                         .padding(.horizontal, 40)
                         .frame(maxHeight: .infinity)
                         .onChange(of: vm.logOutput) { _, _ in
@@ -990,7 +1136,7 @@ struct ContentView: View {
                 Spacer(minLength: 10)
                 
                 // Action Button
-                Button(action: vm.startMerge) {
+                Button(action: { vm.startMerge() }) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(vm.selectedFolder == nil || vm.isProcessing ? Color.gray.opacity(0.5) : Color.cyan)
@@ -1000,11 +1146,11 @@ struct ContentView: View {
                             .font(.system(size: 18, weight: .bold, design: .monospaced))
                             .foregroundColor(vm.selectedFolder == nil || vm.isProcessing ? .white.opacity(0.5) : .black)
                     }
-                    .frame(height: 50)
+                    .frame(height: 45)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.horizontal, 40)
-                .padding(.bottom, 30)
+                .padding(.bottom, 20)
                 .disabled(vm.selectedFolder == nil || vm.isProcessing)
             }
         }
@@ -1016,6 +1162,20 @@ struct ContentView: View {
         .sheet(isPresented: $showGlossary) {
             GlossaryView()
                 .environmentObject(lang)
+        }
+        .sheet(isPresented: $showChangelog) {
+            ChangelogView()
+                .environmentObject(lang)
+        }
+        .alert(isPresented: $vm.showDracarysAlert) {
+            Alert(
+                title: Text("Dracarys"),
+                message: Text("Por los Siete Dioses, la matemática original dice que esto es imposible. A menos que estés usando magia de sangre o trucos oscuros de la Scene... ¿Deseas despertar al dragón?"),
+                primaryButton: .destructive(Text("🔥 Dracarys! (Usar Magia)")) {
+                    vm.startMerge(force: true)
+                },
+                secondaryButton: .cancel(Text("Cancelar"))
+            )
         }
     }
 }
@@ -1206,5 +1366,94 @@ struct ErrorItemView: View {
         .background(Color.white.opacity(0.05))
         .cornerRadius(12)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+    }
+}
+
+struct ChangelogView: View {
+    @Environment(\.presentationMode) var presentationMode
+    
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Changelog - PKGMachete")
+                .font(.system(size: 28, weight: .bold, design: .monospaced))
+                .foregroundColor(.cyan)
+                .padding(.top, 30)
+            
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    ChangelogItemView(
+                        version: "v5.0.0",
+                        date: "Jul 2026",
+                        features: [
+                            "Optimización de C++: Cada hilo ahora usa su propio descriptor de archivo (VFS Lock Contention resuelto).",
+                            "Implementado F_NOCACHE para evitar la saturación de RAM (Page Cache Trashing) en macOS.",
+                            "Validación estricta de Magic Bytes implementada para prevenir la unión de archivos PKG falsos.",
+                            "Protección total contra Inyección JSON desde el motor C++.",
+                            "Decodificación asíncrona de JSON en Swift para evitar caídas de FPS en la interfaz.",
+                            "Mejoras de UI: Botón hacia GitHub, Versión y Changelog dinámicos."
+                        ]
+                    )
+                    
+                    ChangelogItemView(
+                        version: "v4.0.0",
+                        date: "Jul 2026",
+                        features: [
+                            "Migración completa del motor de backend a C++20.",
+                            "Soporte nativo para Multi-Threading con concurrencia por hardware.",
+                            "Implementada salida JSON estandarizada para comunicación asíncrona.",
+                            "Barra de progreso general con ETA (Tiempo Estimado) en vivo."
+                        ]
+                    )
+                }
+                .padding(.horizontal, 30)
+            }
+            
+            Button("Close") {
+                presentationMode.wrappedValue.dismiss()
+            }
+            .padding(.horizontal, 40)
+            .padding(.vertical, 10)
+            .background(Color.purple.opacity(0.8))
+            .foregroundColor(.white)
+            .cornerRadius(10)
+            .padding(.bottom, 20)
+        }
+        .frame(minWidth: 500, minHeight: 600)
+        .background(Color.black)
+    }
+}
+
+struct ChangelogItemView: View {
+    let version: String
+    let date: String
+    let features: [String]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(version)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.cyan)
+                Spacer()
+                Text(date)
+                    .foregroundColor(.gray)
+                    .font(.subheadline)
+            }
+            
+            Divider().background(Color.gray.opacity(0.3))
+            
+            ForEach(features, id: \.self) { feature in
+                HStack(alignment: .top) {
+                    Text("•")
+                        .foregroundColor(.purple)
+                    Text(feature)
+                        .foregroundColor(.white.opacity(0.9))
+                }
+            }
+        }
+        .padding()
+        .background(Color.white.opacity(0.05))
+        .cornerRadius(12)
     }
 }

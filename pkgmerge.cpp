@@ -1,214 +1,363 @@
-#include <stdio.h>
-#include <string>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
-#include <map>
 #include <vector>
+#include <map>
 #include <algorithm>
-#include <assert.h>
+#include <string>
+#include <thread>
+#include <atomic>
+#include <mutex>
 #include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <memory>
+#include <cstdlib>
+#if defined(__APPLE__)
+#include <CommonCrypto/CommonDigest.h>
+#else
+#include <openssl/sha.h>
+#endif
+
+#if defined(__APPLE__)
+#include <libkern/OSByteOrder.h>
+#define be32toh(x) OSSwapBigToHostInt32(x)
+#define be64toh(x) OSSwapBigToHostInt64(x)
+#elif defined(__linux__)
+#include <endian.h>
+#else
+#include <winsock2.h>
+#define be32toh(x) ntohl(x)
+#endif
 
 namespace fs = std::filesystem;
-using std::string;
-using std::map;
-using std::vector;
-
-struct Package {
-	int					part;
-	fs::path			file;
-	vector<Package>		parts;
-	bool operator < (const Package& rhs) const {
-		return part < rhs.part;
-	}
-};
+using namespace std;
 
 const char PKG_MAGIC_PS4[4] = { 0x7F, 0x43, 0x4E, 0x54 }; // \x7FCNT
 const char PKG_MAGIC_PS5[4] = { 0x7F, 0x46, 0x49, 0x48 }; // \x7FFIH
 
-bool has_pkg_magic(const fs::path& path) {
-	std::error_code ec;
-	if (!fs::exists(path, ec) || fs::file_size(path, ec) < 4) return false;
-	std::ifstream ifs(path, std::ios::binary);
-	if (!ifs) return false;
-	char magic[4];
-	ifs.read(magic, sizeof(magic));
-	ifs.close();
-	if (memcmp(magic, PKG_MAGIC_PS4, sizeof(PKG_MAGIC_PS4)) == 0) return true;
-	if (memcmp(magic, PKG_MAGIC_PS5, sizeof(PKG_MAGIC_PS5)) == 0) return true;
-	return false;
-}
+std::mutex log_mutex;
 
-void merge(const map<string, Package>& packages, const string& output_dir) {
-	for (auto & root : packages) {
-		auto pkg = root.second;
-        if (pkg.parts.empty()) {
-            continue;
+std::string escape_json(const std::string& s) {
+    std::string result;
+    result.reserve(s.length());
+    for (char c : s) {
+        if (c == '"') result += "\\\"";
+        else if (c == '\\') result += "\\\\";
+        else if (c == '\b') result += "\\b";
+        else if (c == '\f') result += "\\f";
+        else if (c == '\n') result += "\\n";
+        else if (c == '\r') result += "\\r";
+        else if (c == '\t') result += "\\t";
+        else if (0 <= c && c <= 0x1f) {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "\\u%04x", c);
+            result += buf;
+        } else {
+            result += c;
         }
-
-		// Before we start, we need to sort the lists properly
-		std::sort(pkg.parts.begin(), pkg.parts.end());
-
-		size_t pieces = pkg.parts.size();
-		auto title_id = root.first.c_str();
-
-		printf("[work] beginning to merge %d %s for package %s...\n", (int)pieces, pieces == 1 ? "piece" : "pieces", title_id);
-
-		string merged_file_name = root.first + "-merged.pkg";
-		fs::path out_path = output_dir.empty() ? pkg.file.parent_path() : fs::path(output_dir);
-		string full_merged_file = (out_path / merged_file_name).string();
-
-		if (fs::exists(full_merged_file)) {
-			fs::remove(full_merged_file);
-		}
-
-		printf("\t[work] copying root package file to new file...");
-		auto merged_file = fs::path(full_merged_file);
-
-		// Deal with root file first
-		fs::copy_file(pkg.file, merged_file, fs::copy_options::update_existing);
-		printf("done\n");
-
-		// Using C API from here on because it just works and is fast
-		FILE *merged = fopen(full_merged_file.c_str(), "a+b");
-		if (!merged) {
-			printf("\n[error] could not open merged file %s for writing\n", full_merged_file.c_str());
-			continue;
-		}
-
-		// Now all the pieces...
-		for (auto & part : pkg.parts) {
-			FILE *to_merge = fopen(part.file.string().c_str(), "rb");
-            if (!to_merge) {
-                printf("\n[error] could not open piece %s\n", part.file.string().c_str());
-                continue;
-            }
-
-			auto total_size = fs::file_size(part.file);
-			if (total_size == 0) {
-				fclose(to_merge);
-				continue;
-			}
-			std::vector<char> buffer(1024 * 512);
-			uintmax_t copied = 0;
-
-			size_t read_data;
-			while ((read_data = fread(buffer.data(), sizeof(char), buffer.size(), to_merge)) > 0)
-			{
-				size_t written = fwrite(buffer.data(), sizeof(char), read_data, merged);
-				if (written != read_data) {
-					printf("\n[error] write error or short write\n");
-					break;
-				}
-				copied += read_data * sizeof(char);
-				auto percentage = ((double)copied / (double)total_size) * 100;
-				printf("\r\t[work] merged %llu/%llu bytes (%.0lf%%) for part %d...", (unsigned long long)copied, (unsigned long long)total_size, percentage, part.part);
-				fflush(stdout);
-			}
-			fclose(to_merge);
-
-			printf("done\n");
-		}
-		fclose(merged);
-	}
+    }
+    return result;
 }
 
-struct ParsedFile {
-    string title_id;
+void emit_json_progress(int thread_id, int part_num, double progress, double global_progress) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    cout << "{\"type\": \"progress\", \"thread\": " << thread_id 
+         << ", \"part\": " << part_num 
+         << ", \"progress\": " << progress 
+         << ", \"global\": " << global_progress << "}" << endl;
+}
+
+void emit_json_error(const string& msg, bool dracarys_needed) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    cout << "{\"type\": \"error\", \"message\": \"" << escape_json(msg)
+         << "\", \"dracarys_needed\": " << (dracarys_needed ? "true" : "false") << "}" << endl;
+}
+
+void emit_json_success(const string& msg) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    cout << "{\"type\": \"success\", \"message\": \"" << escape_json(msg) << "\"}" << endl;
+}
+
+void emit_json_info(const string& msg) {
+    std::lock_guard<std::mutex> lock(log_mutex);
+    cout << "{\"type\": \"info\", \"message\": \"" << escape_json(msg) << "\"}" << endl;
+}
+
+struct PackagePart {
     int part_num;
-    bool is_root;
-    fs::path file_path;
+    fs::path file;
+    uintmax_t size;
+    uintmax_t offset_in_merged;
+    
+    bool operator<(const PackagePart& rhs) const {
+        return part_num < rhs.part_num;
+    }
 };
 
-int main(int argc, char *argv[])
-{
-	setvbuf(stdout, NULL, _IONBF, 0); // Disable stdout buffering for realtime Swift parsing
+bool has_pkg_magic(const fs::path& path) {
+    std::error_code ec;
+    if (!fs::exists(path, ec) || fs::file_size(path, ec) < 4) return false;
+    std::ifstream ifs(path, std::ios::binary);
+    if (!ifs) return false;
+    char magic[4];
+    ifs.read(magic, sizeof(magic));
+    ifs.close();
+    return (memcmp(magic, PKG_MAGIC_PS4, 4) == 0 || memcmp(magic, PKG_MAGIC_PS5, 4) == 0);
+}
 
-	if (argc < 2 || argc > 3) {
-		std::cout << "No pkg directory supplied\nUsage: pkg-merge <directory> [output_directory]" << std::endl;
-		return 1;
-	}
-	string dir = argv[1];
-	string out_dir = "";
-	if (argc == 3) {
-		out_dir = argv[2];
-		if (!fs::is_directory(out_dir)) {
-			printf("[error] argument '%s' is not a directory\n", out_dir.c_str());
-			return 1;
-		}
-	}
+bool process_package(const string& title_id, std::vector<PackagePart>& parts, const string& output_dir, bool force_mode) {
+    if (parts.empty()) return true;
+    
+    std::sort(parts.begin(), parts.end());
 
-	if (!fs::is_directory(dir)) {
-		printf("[error] argument '%s' is not a directory\n", dir.c_str());
-		return 1;
-	}
-	
-    map<string, Package> packages;
-    vector<ParsedFile> all_files;
+    if (!has_pkg_magic(parts[0].file)) {
+        emit_json_error("Invalid PKG magic bytes. The first part is not a valid PS4/PS5 package.", false);
+        return false;
+    }
 
-	for (auto & file : fs::directory_iterator(dir)) {
-		string file_name = file.path().filename().string();
+    uintmax_t total_size = 0;
+    uintmax_t common_chunk_size = 0;
+    bool size_mismatch_detected = false;
 
-		if (file.path().extension() != ".pkg") {
-			continue;
-		}
-		if (file_name.find("-merged") != string::npos) continue;
+    // First pass: Verify sizes
+    for (size_t i = 0; i < parts.size(); ++i) {
+        parts[i].offset_in_merged = total_size;
+        parts[i].size = fs::file_size(parts[i].file);
+        total_size += parts[i].size;
+        
+        if (i < parts.size() - 1) { // Not the last part
+            if (common_chunk_size == 0) {
+                common_chunk_size = parts[i].size;
+            } else if (parts[i].size != common_chunk_size) {
+                size_mismatch_detected = true;
+            }
+        }
+    }
+
+    if (size_mismatch_detected && !force_mode) {
+        emit_json_error("Math mismatch detected! The parts do not have identical chunk sizes. This means a part is missing or a Scene Hack (like injecting sc.pkg) is being attempted.", true);
+        return false; // Abort unless forced
+    }
+    
+    if (size_mismatch_detected && force_mode) {
+        emit_json_info("DRACARYS! Ignoring math mismatch due to --force mode. Proceeding with brute-force merge.");
+    }
+
+    // Check disk space
+    fs::path out_path = output_dir.empty() ? parts[0].file.parent_path() : fs::path(output_dir);
+    std::error_code ec;
+    fs::create_directories(out_path, ec);
+    fs::space_info space = fs::space(out_path, ec);
+    if (ec || space.available < total_size) {
+        emit_json_error("Not enough free disk space or cannot access directory. Required: " + to_string(total_size) + " bytes.", false);
+        return false;
+    }
+
+    string merged_file_name = title_id + "-merged.pkg";
+    string full_merged_file = (out_path / merged_file_name).string();
+
+    if (fs::exists(full_merged_file)) {
+        fs::remove(full_merged_file);
+    }
+
+    // Open file for writing (creation and preallocation on main thread)
+    int fd_main = open(full_merged_file.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd_main < 0) {
+        emit_json_error("Could not open destination file for writing.", false);
+        return false;
+    }
+
+    // Preallocate
+#if defined(__APPLE__)
+    fstore_t store = {F_ALLOCATECONTIG, F_PEOFPOSMODE, 0, (off_t)total_size, 0};
+    int ret = fcntl(fd_main, F_PREALLOCATE, &store);
+    if (ret == -1) {
+        store.fst_flags = F_ALLOCATEALL;
+        fcntl(fd_main, F_PREALLOCATE, &store);
+    }
+    ftruncate(fd_main, total_size);
+#elif defined(__linux__)
+    posix_fallocate(fd_main, 0, total_size);
+#endif
+    close(fd_main);
+
+    std::atomic<uintmax_t> total_written{0};
+    std::atomic<bool> has_error{false};
+    
+    // Create threads for parallel merging
+    size_t num_threads = std::min<size_t>(std::thread::hardware_concurrency(), parts.size());
+    if (num_threads == 0) num_threads = 1;
+    if (num_threads > 4) num_threads = 4; // Cap at 4 for optimal NVMe queue depth
+
+    std::vector<std::thread> workers;
+    std::atomic<size_t> part_index{0};
+
+    auto worker_task = [&](int thread_id) {
+        // Open independent output file descriptor to avoid VFS Lock contention
+        int fd_out = open(full_merged_file.c_str(), O_WRONLY);
+        if (fd_out < 0) {
+            emit_json_error("Thread " + to_string(thread_id) + " failed to open destination file.", false);
+            return;
+        }
+
+#if defined(__APPLE__)
+        fcntl(fd_out, F_NOCACHE, 1);
+#endif
+
+        int counter = 0;
+
+        while (!has_error.load()) {
+            size_t idx = part_index.fetch_add(1);
+            if (idx >= parts.size()) break;
+            
+            const auto& part = parts[idx];
+            int fd_in = open(part.file.string().c_str(), O_RDONLY);
+            if (fd_in < 0) {
+                emit_json_error("Thread " + to_string(thread_id) + " failed to open part " + to_string(part.part_num), false);
+                has_error = true;
+                break;
+            }
+
+#if defined(__APPLE__)
+            fcntl(fd_in, F_NOCACHE, 1);
+#elif defined(__linux__)
+            posix_fadvise(fd_in, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+
+            const size_t buf_size = 16 * 1024 * 1024; // 16MB buffer
+            char* buffer_ptr = nullptr;
+            if (posix_memalign((void**)&buffer_ptr, 4096, buf_size) != 0) {
+                emit_json_error("Thread " + to_string(thread_id) + " failed to allocate aligned memory", false);
+                has_error = true;
+                break;
+            }
+            std::unique_ptr<char, decltype(&free)> buffer_guard(buffer_ptr, free);
+            char* buffer = buffer_ptr;
+            
+            uintmax_t offset_in_out = part.offset_in_merged;
+            uintmax_t written_for_part = 0;
+            
+            while (!has_error.load()) {
+                ssize_t bytes_read = read(fd_in, buffer, buf_size);
+                if (bytes_read < 0) {
+                    emit_json_error("Thread " + to_string(thread_id) + " failed to read from part " + to_string(part.part_num), false);
+                    has_error = true;
+                    break;
+                }
+                if (bytes_read == 0) break;
+                
+                ssize_t total_written_for_buffer = 0;
+                while (total_written_for_buffer < bytes_read && !has_error.load()) {
+                    ssize_t bytes_written = pwrite(fd_out, buffer + total_written_for_buffer, bytes_read - total_written_for_buffer, offset_in_out);
+                    if (bytes_written < 0) {
+                        emit_json_error("Write error on part " + to_string(part.part_num), false);
+                        has_error = true;
+                        break;
+                    }
+                    offset_in_out += bytes_written;
+                    written_for_part += bytes_written;
+                    total_written_for_buffer += bytes_written;
+                    
+                    total_written.fetch_add(bytes_written);
+                }
+                if (has_error.load()) break;
+                
+                uintmax_t cur_total = total_written.load();
+                
+                double part_prog = ((double)written_for_part / part.size) * 100.0;
+                double glob_prog = ((double)cur_total / total_size) * 100.0;
+                
+                if (counter++ % 10 == 0 || part_prog >= 100.0) {
+                    emit_json_progress(thread_id, part.part_num, part_prog, glob_prog);
+                }
+            }
+            close(fd_in);
+        }
+        close(fd_out);
+    };
+
+    for (size_t i = 0; i < num_threads; ++i) {
+        workers.emplace_back(worker_task, i);
+    }
+    
+    for (auto& w : workers) {
+        w.join();
+    }
+    
+    if (has_error.load()) {
+        fs::remove(full_merged_file); // Clean up corrupted file
+        return false;
+    }
+
+    emit_json_success("Merged PKG saved to: " + full_merged_file);
+    return true;
+}
+
+int main(int argc, char *argv[]) {
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    string dir = "";
+    string out_dir = "";
+    bool force_mode = false;
+
+    for (int i = 1; i < argc; ++i) {
+        string arg = argv[i];
+        if (arg == "--force") {
+            force_mode = true;
+        } else if (dir.empty()) {
+            dir = arg;
+        } else if (out_dir.empty()) {
+            out_dir = arg;
+        }
+    }
+
+    if (dir.empty()) {
+        emit_json_error("No pkg directory supplied. Usage: pkg-merge <directory> [output_directory] [--force]", false);
+        return 1;
+    }
+
+    if (!fs::is_directory(dir)) {
+        emit_json_error("Argument is not a directory: " + dir, false);
+        return 1;
+    }
+    
+    map<string, vector<PackagePart>> root_groups;
+
+    for (auto & file : fs::directory_iterator(dir)) {
+        if (!file.is_regular_file()) continue;
+        string file_name = file.path().filename().string();
+        if (file.path().extension() != ".pkg") continue;
+        if (file_name.find("-merged") != string::npos) continue;
 
         string title_id = file_name.substr(0, file_name.find_last_of("."));
         int part_num = 0;
         
         size_t found_part_begin = title_id.find_last_of("_");
-        if (found_part_begin != string::npos) {
+        if (found_part_begin != string::npos && found_part_begin + 1 < title_id.length()) {
             string part_str = title_id.substr(found_part_begin + 1);
             char* ptr = nullptr;
             int parsed_part = strtol(part_str.c_str(), &ptr, 10);
             if (ptr != nullptr && *ptr == '\0' && part_str.length() > 0) {
-                // It is a valid piece!
                 part_num = parsed_part;
                 title_id = title_id.substr(0, found_part_begin);
             }
         }
         
-        bool is_root = has_pkg_magic(file.path());
+        PackagePart p;
+        p.part_num = part_num;
+        p.file = file.path();
         
-        ParsedFile pf;
-        pf.title_id = title_id;
-        pf.part_num = part_num;
-        pf.is_root = is_root;
-        pf.file_path = file.path();
-        
-        all_files.push_back(pf);
-	}
-    
-    // First pass: Find all roots
-    for (auto& pf : all_files) {
-        if (pf.is_root) {
-            auto package = Package();
-            package.part = pf.part_num; // Usually 0
-            package.file = pf.file_path;
-            packages.insert(std::pair<string, Package>(pf.title_id, package));
-            printf("[success] found root PKG file for %s\n", pf.title_id.c_str());
-        }
+        root_groups[title_id].push_back(p);
     }
     
-    // Second pass: Find all pieces and attach them to roots
-    for (auto& pf : all_files) {
-        if (!pf.is_root) {
-            auto it = packages.find(pf.title_id);
-            if (it != packages.end()) {
-                auto pkg = &it->second;
-                auto piece = Package();
-                piece.file = pf.file_path;
-                piece.part = pf.part_num;
-                pkg->parts.push_back(piece);
-                printf("[success] found piece %d for PKG file %s\n", pf.part_num, pf.title_id.c_str());
-            } else {
-                printf("[warn] '%s' seems to be a piece but no root package was found. skipping...\n", pf.file_path.filename().string().c_str());
-            }
+    bool all_success = true;
+    for (auto& group : root_groups) {
+        if (!process_package(group.first, group.second, out_dir, force_mode)) {
+            all_success = false;
         }
     }
 
-	merge(packages, out_dir);
-	printf("\n[success] completed\n");
-	return 0;
+    return all_success ? 0 : 1;
 }

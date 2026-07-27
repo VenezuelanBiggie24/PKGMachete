@@ -10,11 +10,13 @@
 ## ✨ Key Features
 
 *   🎮 **Full PS4 & PS5 Support:** A guaranteed two-pass algorithm prevents corrupted or orphaned files, processing PKGs with absolute precision.
-*   🎨 **"Premium/Gamer" UI:** Enjoy an immersive visual experience with a modern Glassmorphism design, cyberpunk dark themes, and sleek cyan gradients.
+*   ⚡ **C++20 Multi-Threading Engine:** Unlocks absolute peak storage performance via hardware-level concurrency and un-cached (`F_NOCACHE`) parallel I/O allocations on macOS.
+*   🛡️ **Magic Bytes Validation:** Anti-tamper pre-flight system safely blocks fake chunks or Scene manipulations before performing the merge.
+*   🎨 **"Premium/Gamer" UI:** Enjoy an immersive visual experience with a modern Glassmorphism design, cyberpunk dark themes, and sleek cyan gradients running on fully asynchronous rendering to avoid UI freezes.
 *   🌍 **Dynamic Multi-language i18n:** Instantly switch between 15 languages (including Venezuelan Spanish, French, Portuguese, Japanese, Esperanto, and more) without restarting the app.
 *   ⏱️ **Live ETA Calculation:** A smart mathematical algorithm calculates and displays the exact estimated time of completion in real-time.
 *   📂 **Custom Output Directory:** Flexibility to choose and save your merged files exactly in the folder you want.
-*   💻 **Integrated Log Console:** Monitor detailed live progress directly from the app's interface, visualizing the background work of the C++ engine.
+*   💻 **Integrated Log Console:** Monitor detailed live progress directly from the app's interface, visualizing the background work of the C++ engine encoded flawlessly in JSON.
 
 ## 📸 Screenshots
 

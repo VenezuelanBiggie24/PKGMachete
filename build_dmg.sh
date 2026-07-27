@@ -4,14 +4,14 @@ set -e
 APP_NAME="PKGMachete"
 BUNDLE_ID="com.venezuenbiggie24.pkgmachete"
 APP_DIR="${APP_NAME}.app"
-DMG_NAME="${APP_NAME}.dmg"
+DMG_NAME="${APP_NAME}-V5.dmg"
 ICON_PATH="pkg_merge_icon.jpg"
 
 echo "Cleaning up old builds..."
 rm -rf "$APP_DIR" "$DMG_NAME" pkgmachete-cli PkgMerge DMG_Staging
 
 echo "1. Compiling C++ CLI Backend..."
-clang++ -std=c++17 -O3 pkgmerge.cpp -o pkgmachete-cli
+clang++ -std=c++20 -O3 pkgmerge.cpp -o pkgmachete-cli
 
 echo "2. Compiling SwiftUI Frontend..."
 swiftc -module-cache-path ./.swift_cache -parse-as-library app.swift -o "$APP_NAME"
@@ -70,6 +70,7 @@ fi
 echo "7. Ad-Hoc Signing (Bypass Apple Developer requirement)..."
 find "$APP_DIR" -name ".DS_Store" -delete
 dot_clean -v "$APP_DIR"
+xattr -cr "$APP_DIR"
 xattr -cr "$APP_DIR"
 codesign -s - --deep --force "$APP_DIR"
 
