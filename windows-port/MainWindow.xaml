@@ -1,0 +1,17 @@
+<Window
+    x:Class="PKGMachete.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:PKGMachete"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <StackPanel Orientation="Vertical" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+        <TextBlock Text="PKGMachete - Windows Port" FontSize="28" FontWeight="Bold"/>
+        <TextBlock Text="Uniendo paquetes pkg utilizando FILE_FLAG_NO_BUFFERING" FontSize="14" Foreground="Gray" />
+        <Button x:Name="MergeButton" Content="Iniciar Fusión (Merge)" Click="MergeButton_Click" HorizontalAlignment="Center"/>
+        <ProgressBar x:Name="MergeProgress" Width="400" Maximum="100" Value="0" Visibility="Collapsed"/>
+        <TextBlock x:Name="StatusText" Text="Listo para fusionar" HorizontalAlignment="Center"/>
+    </StackPanel>
+</Window>

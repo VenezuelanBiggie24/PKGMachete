@@ -14,7 +14,21 @@
 #include <QUrl>
 #include <QMessageBox>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), process(nullptr), globalProgress(0), startTime(0) {
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), process(nullptr), globalProgress(0), startTime(0), logTimer(new QTimer(this)) {
+    connect(logTimer, &QTimer::timeout, this, [this]() {
+        if (!logBuffer.isEmpty()) {
+            if (logBuffer.endsWith('\n')) {
+                logBuffer.chop(1);
+            }
+            consoleLog->append(logBuffer);
+            logBuffer.clear();
+            
+            QTextCursor cursor = consoleLog->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            consoleLog->setTextCursor(cursor);
+        }
+    });
+
     setAcceptDrops(true);
     setMinimumSize(700, 500);
     setWindowTitle("PKGMachete Linux");
@@ -278,7 +292,10 @@ void MainWindow::startMerge() {
     connect(process, &QProcess::errorOccurred, this, &MainWindow::processError);
     
     consoleLog->clear();
-    consoleLog->append("--- PKGMachete Engine Started ---\n");
+    consoleLog->append("--- PKGMachete Engine Started ---");
+    logBuffer.clear();
+    logTimer->start(50);
+    
     progressBar->setValue(0);
     globalProgress = 0;
     startTime = QDateTime::currentMSecsSinceEpoch();
@@ -292,15 +309,19 @@ void MainWindow::startMerge() {
 }
 
 void MainWindow::processReadyRead() {
-    QByteArray data = process->readAllStandardOutput();
-    data.append(process->readAllStandardError());
-    QString output = QString::fromUtf8(data);
-    parseOutput(output);
+    process->setReadChannel(QProcess::StandardOutput);
+    while (process->canReadLine()) {
+        QByteArray data = process->readLine();
+        QString output = QString::fromUtf8(data);
+        parseOutput(output);
+    }
     
-    // Auto-scroll
-    QTextCursor cursor = consoleLog->textCursor();
-    cursor.movePosition(QTextCursor::End);
-    consoleLog->setTextCursor(cursor);
+    process->setReadChannel(QProcess::StandardError);
+    while (process->canReadLine()) {
+        QByteArray data = process->readLine();
+        QString output = QString::fromUtf8(data);
+        logBuffer.append("[STDERR] " + output.trimmed() + "\n");
+    }
 }
 
 void MainWindow::parseOutput(const QString& output) {
@@ -331,21 +352,21 @@ void MainWindow::parseOutput(const QString& output) {
                 double prog = obj["progress"].toDouble();
                 int thread = obj.contains("thread") ? obj["thread"].toInt() : obj["part"].toInt();
                 threadProgress[thread] = prog;
-                consoleLog->append(QString("> [SYS] THREAD_%1 ACTIVE | PROG: %2% | GLOBAL: %3%")
+                logBuffer.append(QString("> [SYS] THREAD_%1 ACTIVE | PROG: %2% | GLOBAL: %3%\n")
                     .arg(thread, 2, 10, QChar('0'))
                     .arg(prog, 5, 'f', 2)
                     .arg(globalProgress, 5, 'f', 2));
             } else if (type == "error") {
-                consoleLog->append("[ERROR] " + obj["message"].toString());
+                logBuffer.append("[ERROR] " + obj["message"].toString() + "\n");
                 statusLabel->setText(obj["message"].toString());
             } else if (type == "success") {
-                consoleLog->append("[SUCCESS] " + obj["message"].toString());
+                logBuffer.append("[SUCCESS] " + obj["message"].toString() + "\n");
                 statusLabel->setText(obj["message"].toString());
             } else {
-                consoleLog->append("[INFO] " + obj["message"].toString());
+                logBuffer.append("[INFO] " + obj["message"].toString() + "\n");
             }
         } else {
-            consoleLog->append(trimmed);
+            logBuffer.append(trimmed + "\n");
             if (trimmed.contains("merged") && trimmed.contains("bytes")) {
                 statusLabel->setText(trimmed);
             }
@@ -354,7 +375,13 @@ void MainWindow::parseOutput(const QString& output) {
 }
 
 void MainWindow::processError(QProcess::ProcessError error) {
-    consoleLog->append(QString("\n--- Execution Error: %1 ---\n").arg(process->errorString()));
+    logTimer->stop();
+    if (!logBuffer.isEmpty()) {
+        if (logBuffer.endsWith('\n')) logBuffer.chop(1);
+        consoleLog->append(logBuffer);
+        logBuffer.clear();
+    }
+    consoleLog->append(QString("\n--- Execution Error: %1 ---").arg(process->errorString()));
     statusLabel->setText(LanguageManager::instance().get("failed_run") + " " + process->errorString());
     btnMerge->setEnabled(true);
     btnSelectFolder->setEnabled(true);
@@ -363,13 +390,20 @@ void MainWindow::processError(QProcess::ProcessError error) {
 }
 
 void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) {
+    logTimer->stop();
+    if (!logBuffer.isEmpty()) {
+        if (logBuffer.endsWith('\n')) logBuffer.chop(1);
+        consoleLog->append(logBuffer);
+        logBuffer.clear();
+    }
+    
     if (exitStatus == QProcess::NormalExit && exitCode == 0) {
-        consoleLog->append("\n--- Merge Completed ---\n");
+        consoleLog->append("\n--- Merge Completed ---");
         progressBar->setValue(100);
         statusLabel->setText(LanguageManager::instance().get("success"));
         etaLabel->clear();
     } else {
-        consoleLog->append(QString("\n--- Merge Failed (Code %1) ---\n").arg(exitCode));
+        consoleLog->append(QString("\n--- Merge Failed (Code %1) ---").arg(exitCode));
         statusLabel->setText(LanguageManager::instance().get("err_code") + " " + QString::number(exitCode));
     }
     
