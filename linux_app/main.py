@@ -111,7 +111,7 @@ class PKGMacheteApp(ctk.CTk):
         self.btn_dir.configure(text=t["dir"])
         self.btn_out.configure(text=t["out"])
         self.btn_start.configure(text=t["start"])
-        self.log(t["ready"] + "\\n")
+        self.log(t["ready"] + "\n")
 
     def change_lang(self, choice):
         self.current_lang = choice
@@ -134,7 +134,7 @@ class PKGMacheteApp(ctk.CTk):
         if replace_last_line:
             # Delete last line
             self.console.delete("end-2l", "end-1c")
-            self.console.insert("end", "\\n" + msg)
+            self.console.insert("end", "\n" + msg)
         else:
             self.console.insert("end", msg)
         self.console.see("end")
@@ -145,7 +145,7 @@ class PKGMacheteApp(ctk.CTk):
             return
             
         if not os.path.exists(self.binary_path):
-            self.log(f"[ERROR] Engine not found at {self.binary_path}\\n")
+            self.log(f"[ERROR] Engine not found at {self.binary_path}\n")
             return
 
         self.btn_start.configure(state="disabled")
@@ -170,22 +170,22 @@ class PKGMacheteApp(ctk.CTk):
             current_line = ""
             while True:
                 char = process.stdout.read(1)
-                if not char and process.poll() is not None:
+                if not char:
                     break
                     
-                if char == '\\r':
+                if char == '\r':
                     self.parse_and_log(current_line, replace=True, start_time=start_time)
                     current_line = ""
-                elif char == '\\n':
+                elif char == '\n':
                     self.parse_and_log(current_line, replace=False, start_time=start_time)
                     current_line = ""
                 else:
                     current_line += char
 
             process.wait()
-            self.after(0, lambda: self.log("\\n[SUCCESS] Completed\\n"))
+            self.after(0, lambda: self.log("\n[SUCCESS] Completed\n"))
         except Exception as e:
-            self.after(0, lambda: self.log(f"\\n[ERROR] {str(e)}\\n"))
+            self.after(0, lambda: self.log(f"\n[ERROR] {str(e)}\n"))
             
         self.after(0, lambda: self.btn_start.configure(state="normal"))
 
@@ -194,7 +194,7 @@ class PKGMacheteApp(ctk.CTk):
             return
 
         # Check for progress percentage, e.g., "merged 100/1000 bytes (10%)"
-        match = re.search(r'\((\d+)\%\)', line)
+        match = re.search(r'\((\d+)%\)', line)
         if match:
             pct = int(match.group(1))
             self.after(0, lambda: self.progress.set(pct / 100.0))
@@ -209,7 +209,7 @@ class PKGMacheteApp(ctk.CTk):
                 eta_str = f"{LANGUAGES[self.current_lang]['eta']} {m}m {s}s"
                 self.after(0, lambda: self.lbl_eta.configure(text=eta_str))
 
-        self.after(0, lambda: self.log(line + "\\n", replace_last_line=replace))
+        self.after(0, lambda: self.log(line + "\n", replace_last_line=replace))
 
 if __name__ == "__main__":
     app = PKGMacheteApp()
