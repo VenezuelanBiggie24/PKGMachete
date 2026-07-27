@@ -47,6 +47,7 @@ vcxproj_content = """<?xml version="1.0" encoding="utf-8"?>
       <DisableSpecificWarnings>4453;28204</DisableSpecificWarnings>
       <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(GeneratedFilesDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -85,6 +86,14 @@ vcxproj_content = """<?xml version="1.0" encoding="utf-8"?>
     </Page>
   </ItemGroup>
   <ItemGroup>
+    <Midl Include="App.idl">
+      <SubType>Code</SubType>
+    </Midl>
+    <Midl Include="MainWindow.idl">
+      <SubType>Code</SubType>
+    </Midl>
+  </ItemGroup>
+  <ItemGroup>
     <Manifest Include="app.manifest" />
   </ItemGroup>
   <ItemGroup>
@@ -94,6 +103,7 @@ vcxproj_content = """<?xml version="1.0" encoding="utf-8"?>
   <ImportGroup Label="ExtensionTargets">
     <Import Project="packages\\Microsoft.Windows.CppWinRT.2.0.230706.1\\build\\native\\Microsoft.Windows.CppWinRT.targets" Condition="Exists('packages\\Microsoft.Windows.CppWinRT.2.0.230706.1\\build\\native\\Microsoft.Windows.CppWinRT.targets')" />
     <Import Project="packages\\Microsoft.WindowsAppSDK.1.4.231008000\\build\\native\\Microsoft.WindowsAppSDK.targets" Condition="Exists('packages\\Microsoft.WindowsAppSDK.1.4.231008000\\build\\native\\Microsoft.WindowsAppSDK.targets')" />
+    <Import Project="packages\\Microsoft.Windows.ImplementationLibrary.1.0.231028.1\\build\\native\\Microsoft.Windows.ImplementationLibrary.targets" Condition="Exists('packages\\Microsoft.Windows.ImplementationLibrary.1.0.231028.1\\build\\native\\Microsoft.Windows.ImplementationLibrary.targets')" />
   </ImportGroup>
 </Project>
 """
@@ -102,30 +112,37 @@ packages_content = """<?xml version="1.0" encoding="utf-8"?>
 <packages>
   <package id="Microsoft.Windows.CppWinRT" version="2.0.230706.1" targetFramework="native" />
   <package id="Microsoft.WindowsAppSDK" version="1.4.231008000" targetFramework="native" />
+  <package id="Microsoft.Windows.ImplementationLibrary" version="1.0.231028.1" targetFramework="native" />
 </packages>
 """
 
-manifest_content = """<?xml version="1.0" encoding="utf-8"?>
-<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="5.0.0.0" name="PKGMachete"/>
-  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
-    <application>
-      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}" />
-    </application>
-  </compatibility>
-</assembly>
+app_idl_content = """namespace PKGMachete
+{
+    [default_interface]
+    runtimeclass App : Microsoft.UI.Xaml.Application
+    {
+        App();
+    }
+}
 """
 
-pch_cpp_content = """#include "pch.h"
+main_window_idl_content = """namespace PKGMachete
+{
+    [default_interface]
+    runtimeclass MainWindow : Microsoft.UI.Xaml.Window
+    {
+        MainWindow();
+    }
+}
 """
 
 with open("windows-port/PKGMachete.vcxproj", "w") as f:
     f.write(vcxproj_content)
 with open("windows-port/packages.config", "w") as f:
     f.write(packages_content)
-with open("windows-port/app.manifest", "w") as f:
-    f.write(manifest_content)
-with open("windows-port/pch.cpp", "w") as f:
-    f.write(pch_cpp_content)
+with open("windows-port/App.idl", "w") as f:
+    f.write(app_idl_content)
+with open("windows-port/MainWindow.idl", "w") as f:
+    f.write(main_window_idl_content)
 
-print("Generated Windows MSBuild files.")
+print("Generated Windows MSBuild files with IDL and WIL.")

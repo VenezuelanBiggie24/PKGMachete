@@ -16,22 +16,16 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x android-port/gradlew || true
-
-    - name: Setup Gradle wrapper if missing
-      run: |
-        cd android-port
-        if [ ! -f "gradlew" ]; then
-          gradle wrapper --gradle-version 8.3
-        fi
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.3'
 
     - name: Build with Gradle
       run: |
         cd android-port
-        ./gradlew assembleRelease
+        gradle assembleRelease
 
     - name: Upload APK to Release
       uses: softprops/action-gh-release@v2
