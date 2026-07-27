@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import sys
 import time
@@ -163,15 +164,20 @@ class PKGMacheteApp(ctk.CTk):
         start_time = time.time()
         
         try:
-            # We must use Popen to read stdout continuously
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
+            # Use unbuffered binary mode to handle \r correctly without Python translation
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
             
-            # Read character by character to handle \r
+            # Read byte by byte to handle \r
             current_line = ""
             while True:
-                char = process.stdout.read(1)
-                if not char:
+                char_b = process.stdout.read(1)
+                if not char_b:
                     break
+                
+                try:
+                    char = char_b.decode('utf-8')
+                except UnicodeDecodeError:
+                    continue
                     
                 if char == '\r':
                     self.parse_and_log(current_line, replace=True, start_time=start_time)

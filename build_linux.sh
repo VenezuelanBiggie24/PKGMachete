@@ -2,6 +2,7 @@
 set -e
 
 echo "Building pkg-merge for Linux..."
+VERSION="3.1.0"
 
 # Create a build directory
 BUILD_DIR="build_linux"
@@ -12,44 +13,28 @@ cd "$BUILD_DIR"
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
 
-# Prepare output directory
-OUTPUT_DIR="../linux_dist"
-mkdir -p "$OUTPUT_DIR"
+# Prepare universal tar.gz package
+echo "Creating universal Linux package..."
+PACKAGE_NAME="PKGMachete_${VERSION}_Linux_Universal"
+mkdir -p "$PACKAGE_NAME"
 
-# Copy the compiled binary
-cp pkg-merge "$OUTPUT_DIR/"
+# Copy files into package directory
+cp pkg-merge "$PACKAGE_NAME/"
+cp ../linux_app/main.py "$PACKAGE_NAME/"
+cp ../install.sh "$PACKAGE_NAME/"
+chmod +x "$PACKAGE_NAME/install.sh"
+chmod +x "$PACKAGE_NAME/pkg-merge"
+chmod +x "$PACKAGE_NAME/main.py"
 
-echo "Build successful! Binary is located in $OUTPUT_DIR/pkg-merge"
+if [ -f "../pkgmachete_icon.jpg" ]; then
+    cp ../pkgmachete_icon.jpg "$PACKAGE_NAME/pkgmachete.jpg"
+elif [ -f "../icon.jpg" ]; then
+    cp ../icon.jpg "$PACKAGE_NAME/pkgmachete.jpg"
+fi
 
-# (Optional) AppImage preparation skeleton
-# To create an AppImage in the future, you would bundle the Python GUI and binary:
-APPDIR="$OUTPUT_DIR/PkgMerge.AppDir"
-mkdir -p "$APPDIR/usr/bin"
-mkdir -p "$APPDIR/opt/PKGMachete/gui"
-mkdir -p "$APPDIR/opt/PKGMachete/bin"
+# Create tar.gz archive
+tar -czvf "${PACKAGE_NAME}.tar.gz" "$PACKAGE_NAME"
+mv "${PACKAGE_NAME}.tar.gz" ../
 
-# Copy C++ binary
-cp pkg-merge "$APPDIR/opt/PKGMachete/bin/"
+echo "Build successful! Universal package is located in the project root: ${PACKAGE_NAME}.tar.gz"
 
-# Copy Python GUI
-cp ../linux_app/main.py "$APPDIR/opt/PKGMachete/gui/"
-
-# Create an AppRun script or .desktop file to launch the Python GUI
-cat << 'EOF' > "$APPDIR/pkgmachete.desktop"
-[Desktop Entry]
-Name=PKGMachete
-Exec=python3 /opt/PKGMachete/gui/main.py
-Icon=pkgmachete
-Type=Application
-Categories=Utility;
-EOF
-
-# Ensure there's an icon
-cp ../icon.jpg "$APPDIR/pkgmachete.png" || true
-
-# Note: AppImage creation requires linuxdeploy / appimagetool, as well as a bundled python runtime or appimage-builder.
-# For standard linux distribution, please see build_debian.sh which focuses on the .deb package.
-# To finish AppImage creation using appimagetool, you would run:
-# appimagetool "$APPDIR"
-
-echo "Standalone Linux binary and AppImage skeleton prepared. (See build_debian.sh for .deb packaging)"
