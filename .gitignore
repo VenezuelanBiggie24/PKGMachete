@@ -1,0 +1,10 @@
+.DS_Store
+.swift_cache/
+*.app/
+*.dmg
+build_linux/
+mytmp/
+empty_test/
+pkg-merge-test
+test.sh
+linux_dist/
